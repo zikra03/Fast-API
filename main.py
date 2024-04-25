@@ -2,11 +2,20 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 import random
 import pandas as pd
+import json
+import os
+from typing import Literal, Optional
+from uuid import uuid4
+from fastapi import FastAPI, HTTPException
+from fastapi.encoders import jsonable_encoder
+from pydantic import BaseModel
+from mangum import Mangum
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 
 # Initialize FastAPI app
 app = FastAPI()
+handler = Mangum(app)
 
 # Load clinical data
 clinical_data = pd.read_excel('clinical.xlsx')
