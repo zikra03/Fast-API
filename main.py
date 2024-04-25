@@ -6,9 +6,7 @@ import json
 import os
 from typing import Literal, Optional
 from uuid import uuid4
-from fastapi import FastAPI, HTTPException
 from fastapi.encoders import jsonable_encoder
-from pydantic import BaseModel
 from mangum import Mangum
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
