@@ -1,12 +1,12 @@
-import pandas as pd
-import random
+from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
-import requests
-from PIL import Image
 from fpdf import FPDF
+import requests
 import os
-from fastapi import FastAPI
+import pandas as pd
+import random
 
 app = FastAPI()
 
@@ -56,9 +56,23 @@ cosine_similarities = cosine_similarity(tfidf_matrix_clinical, tfidf_matrix_food
 # Get indices of similar dishes for each clinical data point
 similar_indices_clinical = [list(similarities.argsort()[-20:][::-1]) for similarities in cosine_similarities]
 
+# Define input data schema
+class UserData(BaseModel):
+    age: int
+    gender: int
+    hba1c_levels: int
+    exercise: int
+    glucose_level: int
+    allergy: int
+    preference: int
+    meal_type: int
+
 # Function to recommend a dish based on user input
-def recommend_dish(user_input: str):
+def recommend_dish(user_data: UserData):
     try:
+        # Construct user input
+        user_input = f"{user_data.age} {user_data.gender} {user_data.hba1c_levels} {user_data.exercise} {user_data.glucose_level} {user_data.allergy} {user_data.preference}"
+
         # Transform user input using TF-IDF Vectorizer
         user_tfidf = tfidf_vectorizer_clinical.transform([user_input])
 
@@ -66,12 +80,29 @@ def recommend_dish(user_input: str):
         similarity_scores_food = cosine_similarity(user_tfidf, tfidf_matrix_food)
 
         # Get indices of similar dishes
-        similar_indices_food = similarity_scores_food.argsort()[0][-20:][::-1]  # Top 20 similar dishes from food dataset
+        similar_indices_food = similarity_scores_food.argsort()[0][-20:][::-1]
 
-        # Get recommendations from selected dishes
-        recommended_dishes_info = food_data.iloc[similar_indices_food][['Dish Name', 'Carbs', 'Protein', 'Fats', 'Fiber', 'Calories', 'Image']].values.tolist()
+        # Filter dishes based on user preferences and restrictions
+        filtered_indices = []
+        for idx in similar_indices_food:
+            dish = food_data.iloc[idx]
+            if (dish['Preference'] == user_data.preference and
+                dish['Meal Type'] == user_data.meal_type and
+                idx in similar_indices_clinical):
+                # Check if the dish contains any ingredient that the user is allergic to
+                if user_data.allergy == 6 or user_data.allergy not in dish['Allergy']:
+                    filtered_indices.append(idx)
 
-        return recommended_dishes_info
+        # If no dishes match the user's input or preferences, select random dishes from the dataset
+        if not filtered_indices:
+            filtered_indices = random.sample(range(len(food_data)), min(3, len(food_data)))
+        else:
+            filtered_indices = random.sample(filtered_indices, min(3, len(filtered_indices)))
+
+        # Get recommendations from filtered dishes
+        recommended_dishes = food_data.iloc[filtered_indices][['Dish Name', 'Carbs', 'Protein', 'Fats', 'Fiber', 'Calories', 'Image']].values.tolist()
+
+        return recommended_dishes
     except Exception as e:
         return f"Error: {str(e)}"
 
@@ -130,7 +161,7 @@ def generate_pdf(weekly_diet_plan):
     return pdf_file_path
 
 # Function to recommend a weekly diet plan based on user input
-def recommend_weekly_diet(user_input: str):
+def recommend_weekly_diet(user_data: UserData):
     try:
         # Define the preferences and requirements for each day of the week
         weekly_plan = {
@@ -152,8 +183,8 @@ def recommend_weekly_diet(user_input: str):
             daily_dishes = {}
             for meal in meals:
                 # Get recommendations based on user inputs for the current day and meal
-                user_input_meal = f"{user_input} {meal} No Preference No Allergy"
-                recommended_dishes = recommend_dish(user_input_meal)
+                user_data.meal_type = meal
+                recommended_dishes = recommend_dish(user_data)
                 # Randomly select one dish from recommendations
                 selected_dish = random.choice(recommended_dishes) if recommended_dishes else ['No dish found', '', '', '', '', '', '']
                 daily_dishes[meal] = selected_dish
@@ -166,14 +197,14 @@ def recommend_weekly_diet(user_input: str):
         return f"Error: {str(e)}"
 
 # Define endpoint for recommending a dish
-@app.get("/recommend-dish/")
-async def get_dish_recommendation(user_input: str):
-    recommended_dish = recommend_dish(user_input)
+@app.post("/recommend-dish/")
+async def get_dish_recommendation(user_data: UserData):
+    recommended_dish = recommend_dish(user_data)
     return recommended_dish
 
 # Define endpoint for generating the weekly diet plan PDF
-@app.get("/generate-pdf/")
-async def generate_weekly_diet_pdf(user_input: str):
-    weekly_diet_plan = recommend_weekly_diet(user_input)
+@app.post("/generate-pdf/")
+async def generate_weekly_diet_pdf(user_data: UserData):
+    weekly_diet_plan = recommend_weekly_diet(user_data)
     pdf_file_path = generate_pdf(weekly_diet_plan)
     return {"pdf_file_path": pdf_file_path}
